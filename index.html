@@ -1,0 +1,1873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AURA AI Smart EV Bike Dashboard</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 1; filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.6)); }
+      50% { opacity: 0.6; filter: drop-shadow(0 0 2px rgba(0, 240, 255, 0.2)); }
+    }
+    @keyframes regenPulse {
+      0%, 100% { filter: drop-shadow(0 0 8px rgba(0, 230, 118, 0.8)); }
+      50% { filter: drop-shadow(0 0 2px rgba(0, 230, 118, 0.3)); }
+    }
+    .neon-cyan { color: #00E5FF; }
+    .neon-green { color: #00E676; }
+    .neon-amber { color: #FFB300; }
+    .neon-red { color: #FF3D57; }
+    .bg-dark-base { background-color: #090D14; }
+    .bg-dark-card { background-color: #111722; }
+    .bg-dark-elevated { background-color: #172030; }
+    .border-dark { border-color: #222F44; }
+    input[type=range] { accent-color: #00E5FF; }
+  </style>
+</head>
+<body class="bg-dark-base text-white antialiased min-h-screen p-4 md:p-6 font-sans">
+  <div class="max-w-6xl mx-auto space-y-5">
+    
+    <!-- Top Header Bar -->
+    <header class="flex flex-wrap items-center justify-between gap-4 bg-dark-card border border-dark rounded-2xl p-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <div>
+          <h1 class="text-lg font-black tracking-wider text-white">AURA EV COCKPIT</h1>
+          <p class="text-xs text-slate-400">AI Telemetry & Intelligent Range Monitor</p>
+        </div>
+      </div>
+
+      <!-- Connection & Status Controls -->
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Manual Start/Pause Button (Does NOT run automatically) -->
+        <button id="btnPlayPause" onclick="toggleSimulation()" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 text-black font-black text-xs hover:bg-cyan-400 transition shadow-lg shadow-cyan-500/20">
+          <span id="playIcon">▶</span>
+          <span id="playText">START DASHBOARD</span>
+        </button>
+
+        <!-- Hidden Dataset File Picker -->
+        <input type="file" id="datasetFileInput" accept=".csv,.json" class="hidden" onchange="handleDatasetFile(event)">
+
+        <!-- IMPORT DATASET Button -->
+        <button id="btnImportDataset" onclick="document.getElementById('datasetFileInput').click()" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-dark-elevated text-cyan-400 border border-cyan-500/40 hover:bg-cyan-500/20 font-black text-xs transition">
+          <span>📂</span>
+          <span>IMPORT DATASET</span>
+        </button>
+
+        <!-- RUN DATASET SIMULATION Button (Appears after import) -->
+        <button id="btnRunDatasetSim" onclick="toggleDatasetSimulation()" class="hidden flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 text-white font-black text-xs hover:bg-purple-500 transition shadow-lg shadow-purple-600/30">
+          <span id="datasetSimIcon">▶</span>
+          <span id="datasetSimText">RUN DATASET SIMULATION</span>
+        </button>
+
+        <!-- Dataset Progress Pill -->
+        <div id="datasetProgressBadge" class="hidden flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-950/80 border border-purple-500/50 text-purple-300 text-xs font-black">
+          <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+          <span id="datasetProgressText">Row 0 / 0</span>
+        </div>
+
+        <!-- Scenario Switcher -->
+        <select id="scenarioSelector" class="bg-dark-elevated text-xs font-bold text-slate-300 border border-dark rounded-xl px-3 py-2 outline-none">
+          <option value="normalCommute">Normal Commute Cycle</option>
+          <option value="hillClimb">Hill Climb (High Load)</option>
+          <option value="regenDescent">Downhill Regen Descent</option>
+          <option value="thermalFault">Thermal & Fault Anomaly</option>
+        </select>
+
+        <!-- Interface Source -->
+        <div class="flex items-center bg-dark-elevated border border-dark rounded-xl p-1 gap-1 text-xs font-bold">
+          <button id="btnBle" onclick="setInterfaceMode('ble')" class="px-3 py-1.5 rounded-lg text-slate-400 transition">BLE</button>
+          <button id="btnWifi" onclick="setInterfaceMode('wifi')" class="px-3 py-1.5 rounded-lg text-slate-400 transition">Wi-Fi</button>
+          <button id="btnSim" onclick="setInterfaceMode('sim')" class="px-3 py-1.5 rounded-lg bg-purple-600/30 text-purple-300 border border-purple-500/50">Simulator</button>
+        </div>
+
+        <!-- Freshness Pill: Starts in STANDBY (Does not blink automatically) -->
+        <div id="freshnessBadge" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 text-xs font-black">
+          <span id="freshnessDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+          <span id="freshnessStatus">STANDBY / IDLE</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="flex overflow-x-auto gap-2 border-b border-dark pb-2 text-xs font-extrabold uppercase tracking-wider">
+      <button onclick="switchTab('dashboard')" id="tab-dashboard" class="tab-btn px-4 py-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/40">Dashboard</button>
+      <button onclick="switchTab('analyzer')" id="tab-analyzer" class="tab-btn px-4 py-2 rounded-xl text-slate-400 hover:text-white">Smart Load & Range</button>
+      <button onclick="switchTab('charts')" id="tab-charts" class="tab-btn px-4 py-2 rounded-xl text-slate-400 hover:text-white">Live Charts</button>
+      <button onclick="switchTab('trip')" id="tab-trip" class="tab-btn px-4 py-2 rounded-xl text-slate-400 hover:text-white">Trip Monitor</button>
+      <button onclick="switchTab('diagnostics')" id="tab-diagnostics" class="tab-btn px-4 py-2 rounded-xl text-slate-400 hover:text-white">AI Diagnostics</button>
+      <button onclick="switchTab('battery')" id="tab-battery" class="tab-btn px-4 py-2 rounded-xl text-slate-400 hover:text-white">16S BMS Pack</button>
+      <button onclick="switchTab('config')" id="tab-config" class="tab-btn px-4 py-2 rounded-xl text-slate-400 hover:text-white">Settings</button>
+    </nav>
+
+    <!-- TAB 1: DASHBOARD CLUSTER -->
+    <main id="view-dashboard" class="space-y-5">
+      <!-- Active Anomaly Warning Banner (Dynamic) -->
+      <div id="activeFaultBanner" class="hidden p-3 rounded-2xl bg-red-950/50 border border-red-500/60 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="text-red-400 text-lg">⚠️</span>
+          <div>
+            <div id="bannerFaultTitle" class="text-xs font-black text-red-300">THERMAL CUTOFF WARNING</div>
+            <div id="bannerFaultEvidence" class="text-xs text-slate-300">Motor temperature has reached 88.5°C</div>
+          </div>
+        </div>
+        <button onclick="switchTab('diagnostics')" class="text-xs font-bold text-red-400 underline">View Diagnostics →</button>
+      </div>
+
+      <!-- Top Instrument Section: Gauge + Battery + Range Card -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        
+        <!-- Central Speed & Tachometer Gauge with Manual Controls -->
+        <div class="lg:col-span-6 bg-dark-card border border-dark rounded-3xl p-6 flex flex-col items-center justify-center relative shadow-lg space-y-4">
+          <div class="relative w-64 h-64 flex items-center justify-center">
+            <svg class="w-full h-full -rotate-90 transform" viewBox="0 0 200 200">
+              <!-- Background Arc -->
+              <circle cx="100" cy="100" r="82" fill="none" stroke="#172030" stroke-width="14" stroke-dasharray="386" stroke-dashoffset="96" stroke-linecap="round"/>
+              <!-- Active Speed Arc -->
+              <circle id="speedArc" cx="100" cy="100" r="82" fill="none" stroke="url(#cyanGrad)" stroke-width="14" stroke-dasharray="386" stroke-dashoffset="386" stroke-linecap="round" class="transition-all duration-150"/>
+              <defs>
+                <linearGradient id="cyanGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#00E676"/>
+                  <stop offset="60%" stop-color="#00E5FF"/>
+                  <stop offset="90%" stop-color="#FFB300"/>
+                  <stop offset="100%" stop-color="#FF3D57"/>
+                </linearGradient>
+              </defs>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+              <span id="txtSpeed" class="text-6xl font-black tracking-tight text-white leading-none">0</span>
+              <span class="text-xs font-black text-cyan-400 tracking-widest mt-1">KM / H</span>
+              <span id="txtRpmBadge" class="mt-2 text-xs font-bold px-3 py-1 rounded-full bg-dark-elevated text-slate-300 border border-dark">0 RPM</span>
+            </div>
+          </div>
+
+          <!-- Manual RPM & KM/H Controls or Controller Auto-Analysis Banner -->
+          <div class="w-full space-y-3 pt-3 border-t border-dark">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-black uppercase tracking-wider text-cyan-400">Mode:</span>
+                <span id="controlModeBadge" class="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">MANUAL CONTROLS</span>
+              </div>
+              <button id="btnConnectController" onclick="toggleControllerConnection()" class="text-xs font-black px-3.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 transition flex items-center gap-1.5">
+                <span>⚡</span>
+                <span id="btnConnectControllerText">CONNECT TO CONTROLLER</span>
+              </button>
+            </div>
+
+            <!-- Manual Sliders (Enabled in Manual Mode - Immediately stops automatic reading on interaction) -->
+            <div id="manualSlidersContainer" onpointerdown="stopAutomaticReading()" class="space-y-3 bg-dark-elevated/80 p-4 rounded-2xl border border-dark transition-all">
+              <div>
+                <div class="flex justify-between text-xs font-bold mb-1">
+                  <span class="text-slate-300 flex items-center gap-1"><span>🎚️</span> Manual Road Speed (KM/H):</span>
+                  <span id="manualSpeedDisplay" class="text-cyan-400 font-black">0 km/h</span>
+                </div>
+                <input type="range" id="sliderManualSpeed" min="0" max="80" value="0" class="w-full" oninput="onManualSpeedInput(this.value)">
+              </div>
+
+              <div>
+                <div class="flex justify-between text-xs font-bold mb-1">
+                  <span class="text-slate-300 flex items-center gap-1"><span>🔄</span> Manual Motor Speed (RPM):</span>
+                  <span id="manualRpmDisplay" class="text-emerald-400 font-black">0 RPM</span>
+                </div>
+                <input type="range" id="sliderManualRpm" min="0" max="1000" value="0" class="w-full" oninput="onManualRpmInput(this.value)">
+              </div>
+
+              <div class="text-[10px] text-slate-400 leading-tight">
+                💡 Dragging either slider immediately synchronizes the other and automatically updates power, battery load, and AI range prediction in real time.
+              </div>
+            </div>
+
+            <!-- Auto Analysis Connected Banner (Shown when controller is connected) -->
+            <div id="controllerConnectedBanner" class="hidden p-3.5 rounded-2xl bg-emerald-950/60 border border-emerald-500/60 flex items-center gap-3">
+              <div class="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-lg animate-pulse">⚡</div>
+              <div>
+                <div class="text-xs font-black text-emerald-400">HARDWARE CONTROLLER CONNECTED</div>
+                <div class="text-[10px] text-slate-300">Automatic reading stopped · Listening for incoming hardware CAN/UART/BLE packets</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Twin Right Column: Battery SoC & AI Range Cards -->
+        <div class="lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-5">
+          
+          <!-- Battery SoC Card -->
+          <div class="bg-dark-card border border-dark rounded-3xl p-5 flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-black uppercase text-slate-400 tracking-wider">Battery Pack</span>
+              <span id="chargeIcon" class="text-emerald-400 text-sm">⚡</span>
+            </div>
+            <div class="my-3 flex items-baseline gap-2">
+              <span id="txtSoc" class="text-5xl font-black text-emerald-400 tracking-tight">85%</span>
+            </div>
+            <div class="space-y-1 text-xs">
+              <div class="flex justify-between text-slate-300 font-semibold">
+                <span>Voltage:</span>
+                <span id="txtVoltage" class="text-white font-bold">59.8 V</span>
+              </div>
+              <div class="flex justify-between text-slate-300 font-semibold">
+                <span>Usable Energy:</span>
+                <span id="txtUsableWh" class="text-white font-bold">1,300 Wh</span>
+              </div>
+              <div class="flex justify-between text-slate-400">
+                <span>Pack Health (SOH):</span>
+                <span class="text-emerald-400 font-bold">98.4%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Predicted Range Card -->
+          <div class="bg-dark-card border border-dark rounded-3xl p-5 flex flex-col justify-between">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-black uppercase text-cyan-400 tracking-wider flex items-center gap-1">
+                <span>🧠</span> AI RANGE
+              </span>
+              <span class="text-xs text-slate-400 font-bold">94% Conf.</span>
+            </div>
+            <div class="my-3 flex items-baseline gap-2">
+              <span id="txtPredictedRange" class="text-5xl font-black text-cyan-400 tracking-tight">58.5</span>
+              <span class="text-sm font-extrabold text-slate-400">KM</span>
+            </div>
+            <div class="space-y-1 text-xs">
+              <div class="flex justify-between text-slate-300 font-semibold">
+                <span>Expected Rate:</span>
+                <span id="txtWhKmRate" class="text-white font-bold">22.2 Wh/km</span>
+              </div>
+              <div class="flex justify-between text-slate-400">
+                <span>Light Load (60kg):</span>
+                <span id="txtLightRange" class="text-emerald-400 font-bold">68.0 km</span>
+              </div>
+              <div class="flex justify-between text-slate-400">
+                <span>Heavy Load (155kg):</span>
+                <span id="txtHeavyRange" class="text-amber-400 font-bold">42.0 km</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bidirectional Power Flow Card (Full width in twin row) -->
+          <div class="sm:col-span-2 bg-dark-card border border-dark rounded-3xl p-5">
+            <div class="flex justify-between items-center mb-2">
+              <span id="powerDirectionLabel" class="text-xs font-black uppercase tracking-wider text-cyan-400">POWER OUTPUT</span>
+              <span id="txtPowerKw" class="text-lg font-black text-white">+0.85 kW</span>
+            </div>
+            <!-- Center-zero bar -->
+            <div class="relative h-3 bg-dark-elevated rounded-full overflow-hidden">
+              <div class="absolute left-1/2 top-0 bottom-0 w-0.5 bg-slate-600 z-10"></div>
+              <div id="barRegen" class="absolute right-1/2 top-0 bottom-0 bg-emerald-400 rounded-l-full transition-all duration-100" style="width: 0%;"></div>
+              <div id="barDrive" class="absolute left-1/2 top-0 bottom-0 bg-cyan-400 rounded-r-full transition-all duration-100" style="width: 35%;"></div>
+            </div>
+            <div class="flex justify-between text-[11px] font-bold text-slate-500 mt-1">
+              <span>REGEN (-)</span>
+              <span>0 kW</span>
+              <span>DRIVE (+)</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 6 High-Density Telemetry Metrics -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="bg-dark-card border border-dark rounded-2xl p-4 flex flex-col justify-between">
+          <span class="text-xs font-bold uppercase text-slate-400">Motor RPM</span>
+          <div class="text-2xl font-black text-cyan-400 my-1" id="valRpm">0</div>
+          <span class="text-[11px] text-slate-500">Hall pulse sensor</span>
+        </div>
+        <div class="bg-dark-card border border-dark rounded-2xl p-4 flex flex-col justify-between">
+          <span class="text-xs font-bold uppercase text-slate-400">Pack Voltage</span>
+          <div class="text-2xl font-black text-blue-400 my-1" id="valVolt">59.8 V</div>
+          <span class="text-[11px] text-slate-500">16S Nominal 60V</span>
+        </div>
+        <div class="bg-dark-card border border-dark rounded-2xl p-4 flex flex-col justify-between">
+          <span class="text-xs font-bold uppercase text-slate-400">Current</span>
+          <div class="text-2xl font-black text-amber-400 my-1" id="valCurrent">+14.2 A</div>
+          <span class="text-[11px] text-slate-500" id="subCurrent">Discharging</span>
+        </div>
+        <div class="bg-dark-card border border-dark rounded-2xl p-4 flex flex-col justify-between">
+          <span class="text-xs font-bold uppercase text-slate-400">Power</span>
+          <div class="text-2xl font-black text-emerald-400 my-1" id="valPower">850 W</div>
+          <span class="text-[11px] text-slate-500">V × I instantaneous</span>
+        </div>
+        <div class="bg-dark-card border border-dark rounded-2xl p-4 flex flex-col justify-between">
+          <span class="text-xs font-bold uppercase text-slate-400">Motor Temp</span>
+          <div class="text-2xl font-black text-white my-1" id="valMotorTemp">38°C</div>
+          <span class="text-[11px] text-slate-500">Limit: 80°C</span>
+        </div>
+        <div class="bg-dark-card border border-dark rounded-2xl p-4 flex flex-col justify-between">
+          <span class="text-xs font-bold uppercase text-slate-400">Vehicle Load</span>
+          <div class="text-2xl font-black text-emerald-400 my-1" id="valLoad">32%</div>
+          <span class="text-[11px] text-slate-500">Controller phase</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- TAB 2: SMART LOAD & RANGE ANALYZER -->
+    <section id="view-analyzer" class="hidden space-y-5">
+      <div class="bg-dark-card border border-dark rounded-3xl p-6">
+        <h2 class="text-base font-black tracking-wide text-cyan-400 mb-2">SMART LOAD & RANGE ANALYZER</h2>
+        <p class="text-xs text-slate-400 mb-6">Physics-informed energy demand calculation considering aerodynamic drag (v³), rolling resistance, grade force, and payload weight.</p>
+
+        <!-- Sliders -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div class="bg-dark-elevated rounded-2xl p-4 border border-dark space-y-2">
+            <div class="flex justify-between text-xs font-bold">
+              <span>Rider Weight:</span>
+              <span id="lblRiderWeight" class="text-cyan-400">75 kg</span>
+            </div>
+            <input type="range" id="sliderRider" min="40" max="130" value="75" class="w-full">
+          </div>
+          <div class="bg-dark-elevated rounded-2xl p-4 border border-dark space-y-2">
+            <div class="flex justify-between text-xs font-bold">
+              <span>Passenger Weight:</span>
+              <span id="lblPassengerWeight" class="text-cyan-400">0 kg</span>
+            </div>
+            <input type="range" id="sliderPassenger" min="0" max="100" value="0" class="w-full">
+          </div>
+          <div class="bg-dark-elevated rounded-2xl p-4 border border-dark space-y-2">
+            <div class="flex justify-between text-xs font-bold">
+              <span>Cargo / Luggage:</span>
+              <span id="lblCargoWeight" class="text-cyan-400">0 kg</span>
+            </div>
+            <input type="range" id="sliderCargo" min="0" max="50" value="0" class="w-full">
+          </div>
+        </div>
+
+        <!-- Mode & Road Gradient -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-2">RIDING MODE</label>
+            <div class="flex gap-2">
+              <button onclick="setRideMode('eco')" id="btnModeEco" class="flex-1 py-2 rounded-xl text-xs font-bold bg-dark-elevated border border-dark text-slate-300">Eco (35 km/h)</button>
+              <button onclick="setRideMode('normal')" id="btnModeNormal" class="flex-1 py-2 rounded-xl text-xs font-bold bg-cyan-500/20 border border-cyan-500 text-cyan-400">Normal (50 km/h)</button>
+              <button onclick="setRideMode('sport')" id="btnModeSport" class="flex-1 py-2 rounded-xl text-xs font-bold bg-dark-elevated border border-dark text-slate-300">Sport (70 km/h)</button>
+            </div>
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-2">ROAD GRADIENT / TERRAIN</label>
+            <div class="flex gap-2">
+              <button onclick="setRoadGradient('flat')" id="btnRoadFlat" class="flex-1 py-2 rounded-xl text-xs font-bold bg-cyan-500/20 border border-cyan-500 text-cyan-400">Flat (0.5%)</button>
+              <button onclick="setRoadGradient('city')" id="btnRoadCity" class="flex-1 py-2 rounded-xl text-xs font-bold bg-dark-elevated border border-dark text-slate-300">City (2.5%)</button>
+              <button onclick="setRoadGradient('hilly')" id="btnRoadHilly" class="flex-1 py-2 rounded-xl text-xs font-bold bg-dark-elevated border border-dark text-slate-300">Hilly (7.0%)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comparison Table -->
+        <div class="overflow-x-auto rounded-2xl border border-dark">
+          <table class="w-full text-xs text-left">
+            <thead class="bg-dark-elevated text-slate-300 uppercase font-black">
+              <tr>
+                <th class="p-3">Condition</th>
+                <th class="p-3">Payload Mass</th>
+                <th class="p-3">Energy Consumption</th>
+                <th class="p-3">Predicted Range</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-dark">
+              <tr class="hover:bg-dark-elevated/40">
+                <td class="p-3 font-bold text-emerald-400 flex items-center gap-1">👤 Light load</td>
+                <td class="p-3">60 kg (solo light rider)</td>
+                <td id="tblLightWhKm" class="p-3 font-semibold text-emerald-400">19.1 Wh/km</td>
+                <td id="tblLightRange" class="p-3 font-black text-emerald-400">68.0 km</td>
+              </tr>
+              <tr class="hover:bg-dark-elevated/40">
+                <td class="p-3 font-bold text-cyan-400 flex items-center gap-1">👥 Normal load</td>
+                <td class="p-3">85 kg (rider + standard backpack)</td>
+                <td id="tblNormalWhKm" class="p-3 font-semibold text-cyan-400">22.2 Wh/km</td>
+                <td id="tblNormalRange" class="p-3 font-black text-cyan-400">58.5 km</td>
+              </tr>
+              <tr class="hover:bg-dark-elevated/40">
+                <td class="p-3 font-bold text-amber-400 flex items-center gap-1">🧳 Heavy load</td>
+                <td class="p-3">155 kg (rider + passenger + cargo)</td>
+                <td id="tblHeavyWhKm" class="p-3 font-semibold text-amber-400">31.0 Wh/km</td>
+                <td id="tblHeavyRange" class="p-3 font-black text-amber-400">42.0 km</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Physics Factors Explanation -->
+        <div class="mt-6 p-4 rounded-2xl bg-dark-elevated/50 border border-dark text-xs space-y-2">
+          <div class="font-black text-amber-400">PHYSICS EXPLANATION & RANGE IMPACTS:</div>
+          <p class="text-slate-300 leading-relaxed">Weight alone does not dictate battery consumption. Aerodynamic drag scales with velocity cubed (<span class="font-mono text-cyan-300">P = 0.5 × ρ × CdA × v³</span>), causing higher speeds to draw exponentially more power. Road inclines multiply gravitational resistance, and drivetrain thermal losses reduce efficiency.</p>
+          <div id="activeImpactList" class="space-y-1 text-slate-400 pt-1">
+            <!-- Populated via JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 🧠 LLM AI RANGE PREDICTION Panel (Below physics table) -->
+      <div class="bg-dark-card border border-cyan-500/30 rounded-3xl p-6 space-y-5 shadow-xl relative overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-dark pb-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-center text-xl text-cyan-400">
+              🧠
+            </div>
+            <div>
+              <h3 class="text-sm font-black tracking-wider text-cyan-400 uppercase">🧠 LLM AI RANGE PREDICTION</h3>
+              <p class="text-[11px] text-slate-400">Llama-3-8B Neural Inference via Groq API</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] font-black px-2.5 py-1 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-500/40 font-mono">GROQ LLAMA-3-8B</span>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label for="llmScenarioInput" class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+              <span>✍️</span> Weight Load Scenario (describe in natural language)
+            </label>
+            <button type="button" onclick="autoPopulateLlmInput(true)" class="text-[11px] text-cyan-400 hover:text-cyan-300 font-bold underline cursor-pointer">
+              🪄 Auto-populate from controls
+            </button>
+          </div>
+          <div class="relative">
+            <textarea id="llmScenarioInput" rows="3" placeholder="e.g. rider 80kg, passenger 65kg, cargo 15kg, hilly terrain, sport mode" class="w-full bg-dark-elevated text-white border border-dark rounded-2xl p-3.5 text-xs outline-none focus:border-cyan-400 transition placeholder-slate-500 resize-none font-medium"></textarea>
+          </div>
+          <div class="text-[10px] text-slate-400 flex items-center gap-1.5">
+            <span class="text-cyan-400">ℹ️</span> Live telemetry (SoC%, speed, motor temp) will be automatically appended during inference.
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <button id="btnPredictLlm" onclick="predictRangeWithLlm()" class="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-cyan-500 text-black font-black text-xs hover:bg-cyan-400 transition shadow-lg shadow-cyan-500/25">
+            <span id="llmBtnIcon">⚡</span>
+            <span id="llmBtnText">PREDICT WITH LLM</span>
+          </button>
+        </div>
+
+        <!-- Loading Spinner Container -->
+        <div id="llmLoadingSpinner" class="hidden p-6 rounded-2xl bg-dark-elevated/70 border border-cyan-500/30 flex flex-col items-center justify-center space-y-3">
+          <div class="w-8 h-8 border-3 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+          <span class="text-xs font-black text-cyan-300 tracking-wider animate-pulse">QUERYING GROQ LLAMA-3 NEURAL INFERENCE...</span>
+          <span class="text-[10px] text-slate-400">Synthesizing aerodynamic drag, payload mass, and battery kinetics...</span>
+        </div>
+
+        <!-- Result Display Card -->
+        <div id="llmResultCard" class="hidden p-5 rounded-2xl bg-gradient-to-br from-dark-elevated to-slate-900 border border-cyan-500/40 space-y-4">
+          <div class="flex items-center justify-between border-b border-dark pb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-black text-cyan-400 uppercase tracking-wider">PREDICTED LLM RESULTS</span>
+              <span id="llmConfidenceBadge" class="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500/40">92% CONFIDENCE</span>
+            </div>
+            <span class="text-[10px] text-slate-400 font-mono" id="llmModelBadge">llama3-8b-8192</span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="p-3 bg-dark-card rounded-xl border border-dark">
+              <span class="text-[10px] font-bold text-slate-400 uppercase">Predicted Range</span>
+              <div class="text-3xl font-black text-cyan-400 mt-1 flex items-baseline gap-1">
+                <span id="llmRangeVal">47.3</span>
+                <span class="text-xs font-bold text-slate-400">km</span>
+              </div>
+            </div>
+            <div class="p-3 bg-dark-card rounded-xl border border-dark">
+              <span class="text-[10px] font-bold text-slate-400 uppercase">Energy Consumption</span>
+              <div class="text-2xl font-black text-emerald-400 mt-1 flex items-baseline gap-1">
+                <span id="llmWhVal">28.5</span>
+                <span class="text-xs font-bold text-slate-400">Wh/km</span>
+              </div>
+            </div>
+            <div class="p-3 bg-dark-card rounded-xl border border-dark">
+              <span class="text-[10px] font-bold text-slate-400 uppercase">Confidence Score</span>
+              <div class="text-2xl font-black text-amber-400 mt-1 flex items-baseline gap-1">
+                <span id="llmConfVal">87</span>
+                <span class="text-xs font-bold text-slate-400">%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-1.5 pt-1">
+            <span class="text-[11px] font-black text-slate-300 uppercase tracking-wide">AI Physics Reasoning:</span>
+            <p id="llmReasoningText" class="text-xs text-slate-300 leading-relaxed bg-dark-card p-3 rounded-xl border border-dark"></p>
+          </div>
+
+          <div id="llmTipsContainer" class="hidden space-y-1.5">
+            <span class="text-[11px] font-black text-emerald-400 uppercase tracking-wide">Efficiency Recommendations:</span>
+            <p id="llmTipsText" class="text-xs text-emerald-300/90 leading-relaxed bg-emerald-950/20 p-3 rounded-xl border border-emerald-500/30"></p>
+          </div>
+        </div>
+
+        <!-- Error Card (if network or parsing fails) -->
+        <div id="llmErrorCard" class="hidden p-4 rounded-2xl bg-red-950/50 border border-red-500/50 text-xs text-red-200 space-y-2">
+          <div class="font-black flex items-center gap-2 text-red-400">
+            <span>⚠️</span> LLM Prediction Request Failed
+          </div>
+          <p id="llmErrorMessage" class="text-slate-300"></p>
+          <div class="text-[10px] text-slate-400">Note: In Android WebView, network calls require INTERNET permission in AndroidManifest.xml. If offline, the built-in mathematical physics engine continues to operate.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: LIVE TELEMETRY CHARTS -->
+    <section id="view-charts" class="hidden space-y-5">
+      <div class="bg-dark-card border border-dark rounded-3xl p-6 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-base font-black tracking-wide text-cyan-400">LIVE MULTI-CHANNEL TELEMETRY GRAPH</h2>
+          <span class="text-xs text-slate-400">Real-time 10 Hz Canvas</span>
+        </div>
+        <div class="w-full h-64 bg-dark-elevated rounded-2xl overflow-hidden relative border border-dark">
+          <canvas id="telemetryCanvas" class="w-full h-full"></canvas>
+        </div>
+        <div class="flex flex-wrap gap-4 text-xs font-bold justify-center">
+          <span class="flex items-center gap-1 text-cyan-400"><span class="w-3 h-3 rounded-full bg-cyan-400"></span> Motor Speed (km/h)</span>
+          <span class="flex items-center gap-1 text-emerald-400"><span class="w-3 h-3 rounded-full bg-emerald-400"></span> Instant Power (kW)</span>
+          <span class="flex items-center gap-1 text-amber-400"><span class="w-3 h-3 rounded-full bg-amber-400"></span> Current (A)</span>
+          <span class="flex items-center gap-1 text-blue-400"><span class="w-3 h-3 rounded-full bg-blue-400"></span> Pack Voltage (V)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: TRIP MONITOR -->
+    <section id="view-trip" class="hidden space-y-5">
+      <div class="bg-dark-card border border-dark rounded-3xl p-6 space-y-6">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base font-black tracking-wide text-emerald-400">ACTIVE TRIP ODOMETER</h2>
+            <p class="text-xs text-slate-400">Trapezoidal energy integration & kinematic wheel odometry</p>
+          </div>
+          <div class="flex gap-2">
+            <button id="btnStartTrip" onclick="toggleTripRecording()" class="px-5 py-2.5 rounded-xl font-black text-xs bg-emerald-500 text-black hover:bg-emerald-400 transition">START NEW TRIP</button>
+            <button onclick="downloadTripCsv()" class="px-4 py-2.5 rounded-xl font-bold text-xs bg-dark-elevated border border-dark text-cyan-400 hover:bg-dark-elevated/80 transition">EXPORT CSV</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div class="bg-dark-elevated p-4 rounded-2xl border border-dark">
+            <span class="text-xs text-slate-400 font-bold">TRIP DISTANCE</span>
+            <div id="tripDistance" class="text-3xl font-black text-white mt-1">0.00 km</div>
+          </div>
+          <div class="bg-dark-elevated p-4 rounded-2xl border border-dark">
+            <span class="text-xs text-slate-400 font-bold">DURATION</span>
+            <div id="tripDuration" class="text-3xl font-black text-white mt-1">00:00:00</div>
+          </div>
+          <div class="bg-dark-elevated p-4 rounded-2xl border border-dark">
+            <span class="text-xs text-slate-400 font-bold">NET ENERGY</span>
+            <div id="tripNetEnergy" class="text-3xl font-black text-cyan-400 mt-1">0.0 Wh</div>
+          </div>
+          <div class="bg-dark-elevated p-4 rounded-2xl border border-dark">
+            <span class="text-xs text-slate-400 font-bold">EFFICIENCY</span>
+            <div id="tripEfficiency" class="text-3xl font-black text-emerald-400 mt-1">0.0 Wh/km</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+          <div class="p-3 bg-dark-elevated/50 rounded-xl border border-dark flex justify-between">
+            <span class="text-slate-400">Regen Recovered:</span>
+            <span id="tripRegen" class="font-bold text-emerald-400">0.0 Wh</span>
+          </div>
+          <div class="p-3 bg-dark-elevated/50 rounded-xl border border-dark flex justify-between">
+            <span class="text-slate-400">Peak Current:</span>
+            <span id="tripPeakCurrent" class="font-bold text-amber-400">0.0 A</span>
+          </div>
+          <div class="p-3 bg-dark-elevated/50 rounded-xl border border-dark flex justify-between">
+            <span class="text-slate-400">Max Speed:</span>
+            <span id="tripMaxSpeed" class="font-bold text-cyan-400">0.0 km/h</span>
+          </div>
+          <div class="p-3 bg-dark-elevated/50 rounded-xl border border-dark flex justify-between">
+            <span class="text-slate-400">Avg Speed:</span>
+            <span id="tripAvgSpeed" class="font-bold text-white">0.0 km/h</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: AI DIAGNOSTICS -->
+    <section id="view-diagnostics" class="hidden space-y-5">
+      <div class="bg-dark-card border border-dark rounded-3xl p-6 space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-base font-black tracking-wide text-amber-400">AI MOTOR HEALTH & FAULT DETECTION</h2>
+            <p class="text-xs text-slate-400">Heuristic anomaly evaluation and controller diagnostic trouble codes (DTC)</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="w-12 h-12 rounded-full border-2 border-emerald-400 bg-emerald-950/50 flex items-center justify-center font-black text-emerald-400 text-sm" id="healthScore">98%</div>
+          </div>
+        </div>
+
+        <div id="diagnosticsList" class="space-y-4">
+          <!-- Active diagnostic cards populated by JS -->
+          <div class="p-4 rounded-2xl bg-dark-elevated border border-emerald-500/30 flex items-center gap-3">
+            <span class="text-emerald-400 text-xl">✓</span>
+            <div>
+              <div class="text-xs font-black text-white">ALL SYSTEMS NOMINAL</div>
+              <div class="text-xs text-slate-400">Motor temperatures, phase currents, and battery voltages are within rated limits.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 6: 16S BMS PACK -->
+    <section id="view-battery" class="hidden space-y-5">
+      <div class="bg-dark-card border border-dark rounded-3xl p-6 space-y-6">
+        <div class="flex justify-between items-center">
+          <div>
+            <h2 class="text-base font-black tracking-wide text-blue-400">16-SERIES CELL VOLTAGES & BALANCE</h2>
+            <p class="text-xs text-slate-400">Individual cell telemetry, millivolt delta, and BMS NTC probe temperatures</p>
+          </div>
+          <div class="text-right text-xs">
+            <span class="text-slate-400">Imbalance Delta:</span>
+            <span id="bmsCellDelta" class="font-black text-emerald-400 text-sm ml-1">12 mV</span>
+          </div>
+        </div>
+
+        <div id="cellGrid" class="grid grid-cols-4 sm:grid-cols-8 gap-2.5">
+          <!-- 16 Cells rendered by JS -->
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+          <div class="p-3 bg-dark-elevated rounded-2xl border border-dark">
+            <span class="text-[11px] font-bold text-slate-400">BMS PROBE 1</span>
+            <div id="tempProbe1" class="text-xl font-black text-white mt-1">28.5 °C</div>
+          </div>
+          <div class="p-3 bg-dark-elevated rounded-2xl border border-dark">
+            <span class="text-[11px] font-bold text-slate-400">BMS PROBE 2</span>
+            <div id="tempProbe2" class="text-xl font-black text-white mt-1">29.1 °C</div>
+          </div>
+          <div class="p-3 bg-dark-elevated rounded-2xl border border-dark">
+            <span class="text-[11px] font-bold text-slate-400">BMS PROBE 3</span>
+            <div id="tempProbe3" class="text-xl font-black text-white mt-1">27.8 °C</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 7: SETTINGS & CONFIG -->
+    <section id="view-config" class="hidden space-y-5">
+      <div class="bg-dark-card border border-dark rounded-3xl p-6 space-y-6">
+        <h2 class="text-base font-black tracking-wide text-cyan-400">VEHICLE KINEMATIC & SENSOR CALIBRATION</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-1">Wheel Outer Diameter (Inches)</label>
+            <input type="number" id="cfgWheelDia" value="17.0" class="w-full bg-dark-elevated text-white border border-dark rounded-xl p-3 text-xs outline-none">
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-1">Drivetrain Gear Ratio (Hub = 1.0)</label>
+            <input type="number" id="cfgGearRatio" value="1.0" class="w-full bg-dark-elevated text-white border border-dark rounded-xl p-3 text-xs outline-none">
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-1">Nominal Battery Pack (Volts)</label>
+            <input type="number" id="cfgVoltage" value="60.0" class="w-full bg-dark-elevated text-white border border-dark rounded-xl p-3 text-xs outline-none">
+          </div>
+          <div>
+            <label class="text-xs font-bold text-slate-400 block mb-1">Pack Nominal Capacity (Ah)</label>
+            <input type="number" id="cfgCapacity" value="30.0" class="w-full bg-dark-elevated text-white border border-dark rounded-xl p-3 text-xs outline-none">
+          </div>
+        </div>
+        <button onclick="saveVehicleConfig()" class="w-full py-3 bg-cyan-500 font-black text-black text-xs rounded-xl hover:bg-cyan-400 transition">SAVE CALIBRATION SETTINGS</button>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastNotification" class="fixed bottom-6 right-6 z-50 transform transition-all duration-300 translate-y-20 opacity-0 pointer-events-none bg-dark-card border border-cyan-500/60 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3">
+    <span id="toastIcon" class="text-cyan-400 text-lg">ℹ️</span>
+    <span id="toastMessage" class="text-xs font-bold text-slate-200"></span>
+  </div>
+
+  <!-- Interactive JavaScript Engine -->
+  <script>
+    // Global State
+    let currentScenario = 'normalCommute';
+    let riderWeight = 75;
+    let passengerWeight = 0;
+    let cargoWeight = 0;
+    let ridingMode = 'normal';
+    let roadGradient = 'flat';
+
+    let speed = 0;
+    let rpm = 0;
+    let voltage = 59.8;
+    let current = 0;
+    let power = 0;
+    let soc = 85.0;
+    let motorTemp = 36.0;
+    let controllerTemp = 33.0;
+
+    let tick = 0;
+    const historyData = { speed: [], power: [], current: [], voltage: [] };
+
+    // Trip Recorder State
+    let isTripActive = false;
+    let tripSeconds = 0;
+    let tripDistanceKm = 0;
+    let tripEnergyConsumedWh = 0;
+    let tripEnergyRegenWh = 0;
+    let tripPeakCurrent = 0;
+    let tripMaxSpeed = 0;
+    let tripSpeedSum = 0;
+    let tripSamples = 0;
+    let tripTimer = null;
+
+    // Dataset Simulation State
+    let importedDataset = [];
+    let datasetSimTimer = null;
+    let datasetCurrentIndex = 0;
+    let isDatasetSimRunning = false;
+
+    // LLM Input User-modified flag
+    let isLlmInputUserModified = false;
+
+    // UI Tab Navigation
+    function switchTab(tabId) {
+      document.querySelectorAll('main, section').forEach(el => el.classList.add('hidden'));
+      document.getElementById('view-' + tabId).classList.remove('hidden');
+
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.className = 'tab-btn px-4 py-2 rounded-xl text-slate-400 hover:text-white transition';
+      });
+      const activeBtn = document.getElementById('tab-' + tabId);
+      if (activeBtn) {
+        activeBtn.className = 'tab-btn px-4 py-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/40 font-extrabold';
+      }
+    }
+
+    // Sliders & Analyzer
+    document.getElementById('sliderRider').addEventListener('input', e => {
+      riderWeight = parseFloat(e.target.value);
+      document.getElementById('lblRiderWeight').innerText = riderWeight + ' kg';
+      updateRangeCalculations();
+      if (!isLlmInputUserModified) autoPopulateLlmInput(false);
+    });
+    document.getElementById('sliderPassenger').addEventListener('input', e => {
+      passengerWeight = parseFloat(e.target.value);
+      document.getElementById('lblPassengerWeight').innerText = passengerWeight + ' kg';
+      updateRangeCalculations();
+      if (!isLlmInputUserModified) autoPopulateLlmInput(false);
+    });
+    document.getElementById('sliderCargo').addEventListener('input', e => {
+      cargoWeight = parseFloat(e.target.value);
+      document.getElementById('lblCargoWeight').innerText = cargoWeight + ' kg';
+      updateRangeCalculations();
+      if (!isLlmInputUserModified) autoPopulateLlmInput(false);
+    });
+
+    const llmScenarioInputEl = document.getElementById('llmScenarioInput');
+    if (llmScenarioInputEl) {
+      llmScenarioInputEl.addEventListener('input', () => {
+        isLlmInputUserModified = true;
+      });
+    }
+
+    function setRideMode(m) {
+      ridingMode = m;
+      ['eco', 'normal', 'sport'].forEach(k => {
+        const btn = document.getElementById('btnMode' + k.charAt(0).toUpperCase() + k.slice(1));
+        if (k === m) {
+          btn.className = 'flex-1 py-2 rounded-xl text-xs font-bold bg-cyan-500/20 border border-cyan-500 text-cyan-400';
+        } else {
+          btn.className = 'flex-1 py-2 rounded-xl text-xs font-bold bg-dark-elevated border border-dark text-slate-300';
+        }
+      });
+      updateRangeCalculations();
+      if (!isLlmInputUserModified) autoPopulateLlmInput(false);
+    }
+
+    function setRoadGradient(g) {
+      roadGradient = g;
+      ['flat', 'city', 'hilly'].forEach(k => {
+        const btn = document.getElementById('btnRoad' + k.charAt(0).toUpperCase() + k.slice(1));
+        if (k === g) {
+          btn.className = 'flex-1 py-2 rounded-xl text-xs font-bold bg-cyan-500/20 border border-cyan-500 text-cyan-400';
+        } else {
+          btn.className = 'flex-1 py-2 rounded-xl text-xs font-bold bg-dark-elevated border border-dark text-slate-300';
+        }
+      });
+      updateRangeCalculations();
+      if (!isLlmInputUserModified) autoPopulateLlmInput(false);
+    }
+
+    document.getElementById('scenarioSelector').addEventListener('change', e => {
+      currentScenario = e.target.value;
+    });
+
+    // Controller Connection & Manual Control State
+    let isControllerConnected = false;
+    let isSimulationRunning = false;
+
+    // Halts any background automatic reading immediately when user interacts with manual controls
+    function stopAutomaticReading() {
+      if (isSimulationRunning) {
+        isSimulationRunning = false;
+        const btn = document.getElementById('btnPlayPause');
+        const icon = document.getElementById('playIcon');
+        const txt = document.getElementById('playText');
+        const badge = document.getElementById('freshnessBadge');
+        const dot = document.getElementById('freshnessDot');
+        const status = document.getElementById('freshnessStatus');
+
+        if (btn) {
+          btn.className = 'flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 text-black font-black text-xs hover:bg-cyan-400 transition shadow-lg shadow-cyan-500/20';
+          icon.innerText = '▶';
+          txt.innerText = 'START DASHBOARD';
+        }
+        if (badge) {
+          badge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 text-xs font-black';
+          dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+          status.innerText = 'MANUAL CONTROL (AUTO STOPPED)';
+        }
+      }
+
+      if (isDatasetSimRunning) {
+        pauseDatasetSimulation();
+      }
+    }
+
+    // Manual KM/H input handler
+    function onManualSpeedInput(val) {
+      if (isControllerConnected) return; // Locked while connected to controller
+      stopAutomaticReading(); // Stop any automatic reading immediately
+
+      speed = Math.max(0, Math.min(80, parseFloat(val) || 0));
+      // Kinematic wheel conversion (17-inch wheel = 1.357m circumference)
+      rpm = Math.round((speed * 1000.0) / (1.357 * 60.0));
+      
+      document.getElementById('sliderManualRpm').value = rpm;
+      document.getElementById('manualSpeedDisplay').innerText = Math.round(speed) + ' km/h';
+      document.getElementById('manualRpmDisplay').innerText = rpm + ' RPM';
+
+      applyCurrentSpeedAndRpm();
+    }
+
+    // Manual RPM input handler
+    function onManualRpmInput(val) {
+      if (isControllerConnected) return; // Locked while connected to controller
+      stopAutomaticReading(); // Stop any automatic reading immediately
+
+      rpm = Math.max(0, Math.min(1000, parseInt(val) || 0));
+      // Kinematic wheel conversion
+      speed = (rpm * 1.357 * 60.0) / 1000.0;
+
+      document.getElementById('sliderManualSpeed').value = Math.round(speed);
+      document.getElementById('manualSpeedDisplay').innerText = Math.round(speed) + ' km/h';
+      document.getElementById('manualRpmDisplay').innerText = rpm + ' RPM';
+
+      applyCurrentSpeedAndRpm();
+    }
+
+    // Applies manual speed & RPM, updating all physics, power, battery, and AI range
+    function applyCurrentSpeedAndRpm() {
+      // Current draw proportional to road speed squared (aerodynamic drag)
+      current = speed > 1.0 ? (2.0 + Math.pow(speed / 50.0, 2) * 22.0) : 0.5;
+      voltage = 60.0 - (current * 0.08);
+      power = voltage * current;
+      motorTemp = 35.0 + (speed / 80.0) * 12.0;
+      controllerTemp = 32.0 + (current / 45.0) * 10.0;
+
+      // Update Dashboard Meters immediately
+      document.getElementById('txtSpeed').innerText = Math.round(speed);
+      document.getElementById('txtRpmBadge').innerText = rpm + ' RPM';
+      document.getElementById('valRpm').innerText = rpm;
+      document.getElementById('valVolt').innerText = voltage.toFixed(1) + ' V';
+      document.getElementById('txtVoltage').innerText = voltage.toFixed(1) + ' V';
+      document.getElementById('valCurrent').innerText = '+' + current.toFixed(1) + ' A';
+      document.getElementById('subCurrent').innerText = 'Discharging';
+      document.getElementById('valPower').innerText = Math.round(power) + ' W';
+      document.getElementById('valMotorTemp').innerText = Math.round(motorTemp) + '°C';
+      document.getElementById('valLoad').innerText = Math.min(100, Math.round(current / 45.0 * 100)) + '%';
+
+      // Power flow bar
+      const powerKw = Math.abs(power) / 1000.0;
+      document.getElementById('txtPowerKw').innerText = '+' + powerKw.toFixed(2) + ' kW';
+      document.getElementById('powerDirectionLabel').innerText = 'POWER OUTPUT';
+      document.getElementById('powerDirectionLabel').className = 'text-xs font-black uppercase tracking-wider text-cyan-400';
+      document.getElementById('barDrive').style.width = Math.min(50, (powerKw / 2.5) * 50) + '%';
+      document.getElementById('barRegen').style.width = '0%';
+
+      // Speed Gauge Arc
+      const dashOffset = 386 - (Math.min(1.0, speed / 80.0) * 290);
+      document.getElementById('speedArc').style.strokeDashoffset = dashOffset;
+
+      // Automatically recalculate AI remaining range and BMS cells
+      updateRangeCalculations();
+      renderBmsCells();
+    }
+
+    // Toggle between Manual Control and Automatic Controller Analysis
+    function toggleControllerConnection() {
+      isControllerConnected = !isControllerConnected;
+      const badge = document.getElementById('controlModeBadge');
+      const btn = document.getElementById('btnConnectController');
+      const btnText = document.getElementById('btnConnectControllerText');
+      const sliders = document.getElementById('manualSlidersContainer');
+      const banner = document.getElementById('controllerConnectedBanner');
+      const freshness = document.getElementById('freshnessBadge');
+      const dot = document.getElementById('freshnessDot');
+      const status = document.getElementById('freshnessStatus');
+
+      if (isControllerConnected) {
+        // Connected to controller: STOP automatic reading / simulation immediately
+        isSimulationRunning = false;
+        if (isDatasetSimRunning) pauseDatasetSimulation();
+
+        badge.innerText = 'CONTROLLER CONNECTED';
+        badge.className = 'text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500';
+        
+        btnText.innerText = 'DISCONNECT CONTROLLER';
+        btn.className = 'text-xs font-black px-3.5 py-1.5 rounded-xl bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30 transition flex items-center gap-1.5';
+
+        sliders.classList.add('opacity-40', 'pointer-events-none');
+        banner.classList.remove('hidden');
+
+        freshness.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-500/50 text-emerald-400 text-xs font-black';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400'; // Static dot, not fluctuating
+        status.innerText = 'CONNECTED · AUTO-READING STOPPED';
+
+        // Stop fluctuating numbers; hold static resting vehicle values
+        speed = 0;
+        rpm = 0;
+        current = 0.0;
+        power = 0.0;
+        applyCurrentSpeedAndRpm();
+      } else {
+        // Disconnected: return to manual control mode
+        badge.innerText = 'MANUAL CONTROLS';
+        badge.className = 'text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700';
+
+        btnText.innerText = 'CONNECT TO CONTROLLER';
+        btn.className = 'text-xs font-black px-3.5 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-500/30 transition flex items-center gap-1.5';
+
+        sliders.classList.remove('opacity-40', 'pointer-events-none');
+        banner.classList.add('hidden');
+
+        freshness.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 text-xs font-black';
+        dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+        status.innerText = 'STANDBY / IDLE';
+
+        isSimulationRunning = false;
+        applyCurrentSpeedAndRpm();
+      }
+    }
+
+    function toggleSimulation() {
+      if (isDatasetSimRunning) {
+        pauseDatasetSimulation();
+      }
+
+      isSimulationRunning = !isSimulationRunning;
+      const btn = document.getElementById('btnPlayPause');
+      const icon = document.getElementById('playIcon');
+      const txt = document.getElementById('playText');
+      const badge = document.getElementById('freshnessBadge');
+      const dot = document.getElementById('freshnessDot');
+      const status = document.getElementById('freshnessStatus');
+
+      if (isSimulationRunning) {
+        btn.className = 'flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-500 text-black font-black text-xs hover:bg-amber-400 transition shadow-lg shadow-amber-500/20';
+        icon.innerText = '⏸';
+        txt.innerText = 'PAUSE SIMULATOR';
+        badge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/60 border border-emerald-500/50 text-emerald-400 text-xs font-black';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+        status.innerText = 'LIVE 10Hz';
+      } else {
+        btn.className = 'flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 text-black font-black text-xs hover:bg-cyan-400 transition shadow-lg shadow-cyan-500/20';
+        icon.innerText = '▶';
+        txt.innerText = 'START DASHBOARD';
+        badge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 text-xs font-black';
+        dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+        status.innerText = 'STANDBY / IDLE';
+      }
+    }
+
+    function setInterfaceMode(mode) {
+      const btnBle = document.getElementById('btnBle');
+      const btnWifi = document.getElementById('btnWifi');
+      const btnSim = document.getElementById('btnSim');
+
+      btnBle.className = 'px-3 py-1.5 rounded-lg text-slate-400 transition';
+      btnWifi.className = 'px-3 py-1.5 rounded-lg text-slate-400 transition';
+      btnSim.className = 'px-3 py-1.5 rounded-lg text-slate-400 transition';
+
+      if (mode === 'ble') {
+        btnBle.className = 'px-3 py-1.5 rounded-lg bg-cyan-600/30 text-cyan-300 border border-cyan-500/50';
+      } else if (mode === 'wifi') {
+        btnWifi.className = 'px-3 py-1.5 rounded-lg bg-emerald-600/30 text-emerald-300 border border-emerald-500/50';
+      } else {
+        btnSim.className = 'px-3 py-1.5 rounded-lg bg-purple-600/30 text-purple-300 border border-purple-500/50';
+      }
+    }
+
+    // Physics Simulation Loop (Runs only when user explicitly starts it)
+    setInterval(() => {
+      if (!isSimulationRunning) {
+        return; // Do NOT run automatically
+      }
+      tick++;
+      const t = tick * 0.1;
+
+      // Simulate vehicle dynamics according to selected scenario
+      if (currentScenario === 'normalCommute') {
+        const cycle = (t % 25.0) / 25.0;
+        if (cycle < 0.35) {
+          // Acceleration
+          speed = (cycle / 0.35) * 44.0;
+          current = 24.0 + (cycle / 0.35) * 12.0;
+        } else if (cycle < 0.70) {
+          // Cruise
+          speed = 42.0 + Math.sin(t * 2.0) * 2.0;
+          current = 12.0 + Math.sin(t * 1.5) * 2.0;
+        } else if (cycle < 0.90) {
+          // Regenerative braking deceleration
+          const decel = (cycle - 0.70) / 0.20;
+          speed = (1.0 - decel) * 42.0;
+          current = -8.5 * (1.0 - decel); // Negative current = Regen
+        } else {
+          // Stopped at light
+          speed = 0;
+          current = 0.5;
+        }
+        motorTemp = 36.0 + Math.sin(t * 0.1) * 3.0;
+        controllerTemp = 33.0 + Math.sin(t * 0.1) * 2.0;
+      } else if (currentScenario === 'hillClimb') {
+        speed = 34.0 + Math.sin(t) * 1.5;
+        current = 36.5 + Math.sin(t * 0.8) * 3.0; // Heavy continuous load
+        motorTemp = Math.min(76.0, motorTemp + 0.04);
+        controllerTemp = Math.min(68.0, controllerTemp + 0.03);
+      } else if (currentScenario === 'regenDescent') {
+        speed = 38.0 + Math.cos(t) * 3.0;
+        current = -12.5 - Math.abs(Math.sin(t)) * 3.0; // Strong regen recovery
+        motorTemp = 38.0;
+        controllerTemp = 40.0;
+      } else if (currentScenario === 'thermalFault') {
+        speed = 58.0;
+        current = 44.2;
+        motorTemp = Math.min(92.0, motorTemp + 0.15);
+        controllerTemp = Math.min(84.0, controllerTemp + 0.10);
+      }
+
+      // Convert Speed (km/h) to Hub Motor RPM (17-inch wheel, 1.357m circumference)
+      rpm = Math.round((speed * 1000.0) / (1.357 * 60.0));
+
+      // Synchronize slider displays to live controller values
+      document.getElementById('sliderManualSpeed').value = Math.round(speed);
+      document.getElementById('sliderManualRpm').value = rpm;
+      document.getElementById('manualSpeedDisplay').innerText = Math.round(speed) + ' km/h';
+      document.getElementById('manualRpmDisplay').innerText = rpm + ' RPM';
+
+      // Battery voltage sag under load
+      soc = Math.max(2.0, soc - (current > 0 ? 0.001 : -0.0005));
+      const ocv = 48.0 + (soc / 100.0) * (67.2 - 48.0);
+      voltage = ocv - (current * 0.08);
+      power = voltage * current;
+
+      // Update UI elements
+      document.getElementById('txtSpeed').innerText = Math.round(speed);
+      document.getElementById('txtRpmBadge').innerText = rpm + ' RPM';
+      document.getElementById('valRpm').innerText = rpm;
+      document.getElementById('valVolt').innerText = voltage.toFixed(1) + ' V';
+      document.getElementById('txtVoltage').innerText = voltage.toFixed(1) + ' V';
+      document.getElementById('valCurrent').innerText = (current >= 0 ? '+' : '') + current.toFixed(1) + ' A';
+      document.getElementById('subCurrent').innerText = current < 0 ? 'Regenerating' : 'Discharging';
+      document.getElementById('valPower').innerText = Math.abs(Math.round(power)) + ' W';
+      document.getElementById('valMotorTemp').innerText = Math.round(motorTemp) + '°C';
+      document.getElementById('valLoad').innerText = Math.min(100, Math.round(Math.abs(current) / 45.0 * 100)) + '%';
+      document.getElementById('txtSoc').innerText = Math.round(soc) + '%';
+
+      // Power flow bar
+      const isRegen = current < -0.2;
+      const powerKw = Math.abs(power) / 1000.0;
+      document.getElementById('txtPowerKw').innerText = (isRegen ? '-' : '+') + powerKw.toFixed(2) + ' kW';
+      document.getElementById('powerDirectionLabel').innerText = isRegen ? 'REGENERATIVE BRAKING' : 'POWER OUTPUT';
+      document.getElementById('powerDirectionLabel').className = isRegen ? 'text-xs font-black uppercase tracking-wider text-emerald-400' : 'text-xs font-black uppercase tracking-wider text-cyan-400';
+      document.getElementById('chargeIcon').innerText = isRegen ? '⚡ REGEN' : '🔋';
+      
+      const pFraction = Math.min(1.0, powerKw / 2.5);
+      if (isRegen) {
+        document.getElementById('barRegen').style.width = (pFraction * 50) + '%';
+        document.getElementById('barDrive').style.width = '0%';
+      } else {
+        document.getElementById('barDrive').style.width = (pFraction * 50) + '%';
+        document.getElementById('barRegen').style.width = '0%';
+      }
+
+      // Circular Speed Gauge Arc
+      const dashOffset = 386 - (Math.min(1.0, speed / 80.0) * 290);
+      document.getElementById('speedArc').style.strokeDashoffset = dashOffset;
+
+      // Check Faults
+      updateDiagnostics();
+
+      // Trip Integration
+      if (isTripActive) {
+        integrateTrip(0.1);
+      }
+
+      // Record History for Live Chart
+      historyData.speed.push(speed);
+      historyData.power.push(powerKw * 20); // Scaled for chart visibility
+      historyData.current.push(current);
+      historyData.voltage.push(voltage);
+      if (historyData.speed.length > 50) {
+        historyData.speed.shift();
+        historyData.power.shift();
+        historyData.current.shift();
+        historyData.voltage.shift();
+      }
+      renderChart();
+
+    }, 100);
+
+    // AI Range Prediction Mathematical Model
+    function updateRangeCalculations() {
+      const grossMass = 65.0 + riderWeight + passengerWeight + cargoWeight;
+      let gradePct = 0.5;
+      if (roadGradient === 'city') gradePct = 2.5;
+      if (roadGradient === 'hilly') gradePct = 7.0;
+
+      let cda = 0.55 + (passengerWeight > 0 ? 0.18 : 0.0) + (cargoWeight > 15 ? 0.06 : 0.0);
+      let v = 38.0; // km/h baseline
+      if (ridingMode === 'eco') v = 32.0;
+      if (ridingMode === 'sport') v = 52.0;
+
+      const vMs = v / 3.6;
+      const pAero = 0.5 * 1.225 * cda * Math.pow(vMs, 3);
+      const pRoll = 0.0085 * grossMass * 9.81 * vMs;
+      const theta = Math.atan(gradePct / 100.0);
+      const pClimb = grossMass * 9.81 * Math.sin(theta) * vMs;
+      const pBat = ((pAero + pRoll + pClimb) / 0.88) + 25.0;
+
+      let whKm = pBat / v;
+      if (ridingMode === 'eco') whKm *= 0.90;
+      if (ridingMode === 'sport') whKm *= 1.22;
+
+      const usableCapacityWh = 1530.0 * (soc / 100.0);
+      const predRange = usableCapacityWh / Math.max(10.0, whKm);
+
+      // Scenarios
+      const lightWhKm = 19.1;
+      const normalWhKm = 22.2;
+      const heavyWhKm = 31.0;
+
+      document.getElementById('txtPredictedRange').innerText = predRange.toFixed(1);
+      document.getElementById('txtWhKmRate').innerText = whKm.toFixed(1) + ' Wh/km';
+      document.getElementById('txtUsableWh').innerText = Math.round(usableCapacityWh) + ' Wh';
+      document.getElementById('txtLightRange').innerText = (usableCapacityWh / lightWhKm).toFixed(1) + ' km';
+      document.getElementById('txtHeavyRange').innerText = (usableCapacityWh / heavyWhKm).toFixed(1) + ' km';
+
+      document.getElementById('tblLightRange').innerText = (usableCapacityWh / lightWhKm).toFixed(1) + ' km';
+      document.getElementById('tblNormalRange').innerText = (usableCapacityWh / normalWhKm).toFixed(1) + ' km';
+      document.getElementById('tblHeavyRange').innerText = (usableCapacityWh / heavyWhKm).toFixed(1) + ' km';
+
+      // Impact Factors
+      const impacts = [];
+      if (passengerWeight > 0 || cargoWeight > 10) {
+        impacts.push('• Added payload weight (+' + (passengerWeight + cargoWeight) + ' kg) increases rolling & incline resistance');
+      }
+      if (ridingMode === 'sport') {
+        impacts.push('• Sport mode high torque delivery draws increased phase current');
+      }
+      if (roadGradient === 'hilly') {
+        impacts.push('• Steep 7% incline requires continuous climbing power against gravity');
+      }
+      if (impacts.length === 0) {
+        impacts.push('• Steady throttle, level road terrain, low aerodynamic drag');
+      }
+
+      document.getElementById('activeImpactList').innerHTML = impacts.map(s => '<div class="text-slate-300 font-medium">' + s + '</div>').join('');
+    }
+
+    // Diagnostics Engine
+    function updateDiagnostics() {
+      const banner = document.getElementById('activeFaultBanner');
+      const dList = document.getElementById('diagnosticsList');
+      const hScore = document.getElementById('healthScore');
+
+      let faults = [];
+      if (motorTemp > 82.0) {
+        faults.push({
+          title: 'CRITICAL MOTOR OVERHEAT',
+          evidence: 'Motor stator temperature is ' + motorTemp.toFixed(1) + '°C (Safety Limit: 80°C)',
+          severity: 'critical'
+        });
+      } else if (motorTemp > 65.0) {
+        faults.push({
+          title: 'ELEVATED MOTOR TEMPERATURE',
+          evidence: 'Motor temperature is ' + motorTemp.toFixed(1) + '°C',
+          severity: 'warning'
+        });
+      }
+
+      if (voltage < 48.0) {
+        faults.push({
+          title: 'BATTERY UNDERVOLTAGE SAG',
+          evidence: 'Pack voltage dropped to ' + voltage.toFixed(1) + 'V (Cutoff: 48.0V)',
+          severity: 'critical'
+        });
+      }
+
+      if (faults.length > 0) {
+        const primary = faults[0];
+        banner.classList.remove('hidden');
+        document.getElementById('bannerFaultTitle').innerText = primary.title;
+        document.getElementById('bannerFaultEvidence').innerText = primary.evidence;
+        hScore.innerText = '45%';
+        hScore.className = 'w-12 h-12 rounded-full border-2 border-red-500 bg-red-950/50 flex items-center justify-center font-black text-red-400 text-sm';
+
+        dList.innerHTML = faults.map(f => `
+          <div class="p-4 rounded-2xl bg-dark-elevated border border-red-500/60 space-y-2">
+            <div class="flex justify-between items-center">
+              <span class="text-xs font-black text-red-400 uppercase">${f.title}</span>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-300">AI HEURISTIC</span>
+            </div>
+            <div class="text-xs text-slate-300">${f.evidence}</div>
+            <div class="text-xs text-slate-400">Recommendation: Allow vehicle to cool down. Switch to Eco mode to throttle phase amps.</div>
+          </div>
+        `).join('');
+      } else {
+        banner.classList.add('hidden');
+        hScore.innerText = '98%';
+        hScore.className = 'w-12 h-12 rounded-full border-2 border-emerald-400 bg-emerald-950/50 flex items-center justify-center font-black text-emerald-400 text-sm';
+        dList.innerHTML = `
+          <div class="p-4 rounded-2xl bg-dark-elevated border border-emerald-500/30 flex items-center gap-3">
+            <span class="text-emerald-400 text-xl">✓</span>
+            <div>
+              <div class="text-xs font-black text-white">ALL SYSTEMS NOMINAL</div>
+              <div class="text-xs text-slate-400">Motor temperatures, phase currents, and battery voltages are within rated limits.</div>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    // 16S BMS Cells Rendering
+    function renderBmsCells() {
+      const container = document.getElementById('cellGrid');
+      container.innerHTML = '';
+      const avgCell = voltage / 16.0;
+      let minV = 5.0, maxV = 0.0;
+
+      for (let i = 1; i <= 16; i++) {
+        const delta = ((i % 4) - 1.5) * 0.005;
+        const cVal = avgCell + delta;
+        if (cVal < minV) minV = cVal;
+        if (cVal > maxV) maxV = cVal;
+
+        const div = document.createElement('div');
+        div.className = 'p-2 bg-dark-elevated rounded-xl border border-dark text-center';
+        div.innerHTML = `
+          <div class="text-[10px] text-slate-400 font-bold">C${i}</div>
+          <div class="text-xs font-black text-white mt-1">${cVal.toFixed(3)} V</div>
+        `;
+        container.appendChild(div);
+      }
+      document.getElementById('bmsCellDelta').innerText = Math.round((maxV - minV) * 1000) + ' mV';
+    }
+
+    // Trip Integration
+    function toggleTripRecording() {
+      isTripActive = !isTripActive;
+      const btn = document.getElementById('btnStartTrip');
+      if (isTripActive) {
+        btn.innerText = 'STOP & SAVE TRIP';
+        btn.className = 'px-5 py-2.5 rounded-xl font-black text-xs bg-amber-500 text-black hover:bg-amber-400 transition';
+        if (!tripTimer) {
+          tripTimer = setInterval(() => { tripSeconds++; }, 1000);
+        }
+      } else {
+        btn.innerText = 'START NEW TRIP';
+        btn.className = 'px-5 py-2.5 rounded-xl font-black text-xs bg-emerald-500 text-black hover:bg-emerald-400 transition';
+        if (tripTimer) { clearInterval(tripTimer); tripTimer = null; }
+      }
+    }
+
+    function integrateTrip(dt) {
+      if (speed > 0) {
+        tripDistanceKm += (speed / 3600.0) * dt;
+        tripSpeedSum += speed;
+        tripSamples++;
+      }
+      if (speed > tripMaxSpeed) tripMaxSpeed = speed;
+      if (current > tripPeakCurrent) tripPeakCurrent = current;
+
+      const dWh = (power * dt) / 3600.0;
+      if (dWh > 0) {
+        tripEnergyConsumedWh += dWh;
+      } else {
+        tripEnergyRegenWh += Math.abs(dWh);
+      }
+
+      const netWh = Math.max(0, tripEnergyConsumedWh - tripEnergyRegenWh);
+      const whKm = tripDistanceKm > 0.05 ? (netWh / tripDistanceKm) : 0.0;
+
+      const hrs = String(Math.floor(tripSeconds / 3600)).padStart(2, '0');
+      const mins = String(Math.floor((tripSeconds % 3600) / 60)).padStart(2, '0');
+      const secs = String(tripSeconds % 60).padStart(2, '0');
+
+      document.getElementById('tripDuration').innerText = `${hrs}:${mins}:${secs}`;
+      document.getElementById('tripDistance').innerText = tripDistanceKm.toFixed(2) + ' km';
+      document.getElementById('tripNetEnergy').innerText = netWh.toFixed(1) + ' Wh';
+      document.getElementById('tripEfficiency').innerText = whKm.toFixed(1) + ' Wh/km';
+      document.getElementById('tripRegen').innerText = tripEnergyRegenWh.toFixed(1) + ' Wh';
+      document.getElementById('tripPeakCurrent').innerText = tripPeakCurrent.toFixed(1) + ' A';
+      document.getElementById('tripMaxSpeed').innerText = tripMaxSpeed.toFixed(1) + ' km/h';
+      document.getElementById('tripAvgSpeed').innerText = (tripSamples > 0 ? (tripSpeedSum / tripSamples) : 0).toFixed(1) + ' km/h';
+    }
+
+    function downloadTripCsv() {
+      const csv = `TripID,DistanceKm,DurationSec,NetEnergyWh,WhPerKm,RegenWh,PeakCurrentA,MaxSpeedKmh\nTRIP-ACTIVE,${tripDistanceKm.toFixed(2)},${tripSeconds},${(tripEnergyConsumedWh - tripEnergyRegenWh).toFixed(1)},${(tripDistanceKm > 0.05 ? ((tripEnergyConsumedWh - tripEnergyRegenWh)/tripDistanceKm).toFixed(1) : '0')},${tripEnergyRegenWh.toFixed(1)},${tripPeakCurrent.toFixed(1)},${tripMaxSpeed.toFixed(1)}`;
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ev_trip_log.csv';
+      a.click();
+    }
+
+    // Canvas Chart Renderer
+    function renderChart() {
+      const canvas = document.getElementById('telemetryCanvas');
+      if (!canvas || !canvas.getContext) return;
+      const ctx = canvas.getContext('2d');
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Gridlines
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 3; i++) {
+        const y = canvas.height * (i / 4.0);
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+
+      function drawLine(arr, color, maxVal) {
+        if (arr.length < 2) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        const dx = canvas.width / (arr.length - 1);
+        for (let i = 0; i < arr.length; i++) {
+          const normY = Math.min(1.0, Math.max(0.0, arr[i] / maxVal));
+          const y = canvas.height - (normY * canvas.height);
+          if (i === 0) ctx.moveTo(0, y);
+          else ctx.lineTo(i * dx, y);
+        }
+        ctx.stroke();
+      }
+
+      drawLine(historyData.speed, '#00E5FF', 70.0);
+      drawLine(historyData.current, '#FFB300', 50.0);
+      drawLine(historyData.power, '#00E676', 50.0);
+    }
+
+    function saveVehicleConfig() {
+      alert('Vehicle kinematic and battery calibration settings saved successfully!');
+    }
+
+    // ==========================================
+    // TOAST NOTIFICATION UTILITY
+    // ==========================================
+    function showToast(message, isSuccess = true) {
+      const toast = document.getElementById('toastNotification');
+      const msgEl = document.getElementById('toastMessage');
+      const iconEl = document.getElementById('toastIcon');
+      if (!toast || !msgEl) return;
+
+      msgEl.innerText = message;
+      iconEl.innerText = isSuccess ? '✅' : '⚠️';
+      toast.className = `fixed bottom-6 right-6 z-50 transform transition-all duration-300 translate-y-0 opacity-100 bg-dark-card border ${isSuccess ? 'border-cyan-500/60 shadow-lg shadow-cyan-500/20' : 'border-red-500/60 shadow-lg shadow-red-500/20'} text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3`;
+
+      if (window.toastTimeout) clearTimeout(window.toastTimeout);
+      window.toastTimeout = setTimeout(() => {
+        toast.className = 'fixed bottom-6 right-6 z-50 transform transition-all duration-300 translate-y-20 opacity-0 pointer-events-none bg-dark-card border border-cyan-500/60 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3';
+      }, 3500);
+    }
+
+    // ==========================================
+    // TASK 1 & 3: GROQ LLM AI RANGE PREDICTION
+    // ==========================================
+    function autoPopulateLlmInput(force = false) {
+      const inputEl = document.getElementById('llmScenarioInput');
+      if (!inputEl) return '';
+      if (force) isLlmInputUserModified = false;
+      const desc = `rider ${riderWeight}kg, passenger ${passengerWeight}kg, cargo ${cargoWeight}kg, ${roadGradient} terrain, ${ridingMode} mode`;
+      inputEl.value = desc;
+      return desc;
+    }
+
+    async function predictRangeWithLlm() {
+      const inputEl = document.getElementById('llmScenarioInput');
+      const spinner = document.getElementById('llmLoadingSpinner');
+      const resultCard = document.getElementById('llmResultCard');
+      const errorCard = document.getElementById('llmErrorCard');
+      const btn = document.getElementById('btnPredictLlm');
+
+      // Task 3: When clicked, auto-populate weight/load description from sliders if empty or unmodified
+      if (!inputEl.value.trim()) {
+        autoPopulateLlmInput(true);
+      }
+
+      const userScenario = inputEl.value.trim();
+      const telemetryDetails = `Current Live Telemetry: SoC: ${soc.toFixed(1)}%, Speed: ${speed.toFixed(1)} km/h, Motor Temp: ${motorTemp.toFixed(1)}°C, Voltage: ${voltage.toFixed(1)}V, Current: ${current.toFixed(1)}A`;
+      const fullPrompt = `${userScenario}\n(${telemetryDetails})`;
+
+      spinner.classList.remove('hidden');
+      resultCard.classList.add('hidden');
+      errorCard.classList.add('hidden');
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+
+      const systemPrompt = `You are an expert EV range prediction AI for an electric bike cockpit. The bike has a 60V 30Ah (1530Wh usable) battery. Given weight load data, riding conditions, terrain, and physics, predict:
+1. Predicted range in km (be specific, e.g. "47.3 km")
+2. Energy consumption rate in Wh/km
+3. Confidence level (%)
+4. A brief reasoning (2-3 sentences)
+
+Always respond in this JSON format:
+{"range_km": 47.3, "wh_per_km": 28.5, "confidence": 87, "reasoning": "...", "tips": "..."}`;
+
+      try {
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer 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'
+          },
+          body: JSON.stringify({
+            model: 'llama3-8b-8192',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: fullPrompt }
+            ],
+            temperature: 0.2,
+            response_format: { type: 'json_object' }
+          })
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Groq API error HTTP ${response.status}: ${errText}`);
+        }
+
+        const resData = await response.json();
+        const content = resData.choices && resData.choices[0] && resData.choices[0].message && resData.choices[0].message.content;
+        if (!content) {
+          throw new Error('Received empty response from Groq API');
+        }
+
+        const parsed = extractJsonFromLlmResponse(content);
+
+        // Display results
+        document.getElementById('llmRangeVal').innerText = parsed.range_km !== undefined ? parsed.range_km : '--';
+        document.getElementById('llmWhVal').innerText = parsed.wh_per_km !== undefined ? parsed.wh_per_km : '--';
+        
+        const conf = parsed.confidence !== undefined ? parsed.confidence : 85;
+        document.getElementById('llmConfVal').innerText = conf;
+        const badge = document.getElementById('llmConfidenceBadge');
+        if (badge) {
+          badge.innerText = conf + '% CONFIDENCE';
+          if (conf >= 80) {
+            badge.className = 'text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500/40';
+          } else if (conf >= 60) {
+            badge.className = 'text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 border border-amber-500/40';
+          } else {
+            badge.className = 'text-[10px] font-black px-2 py-0.5 rounded-full bg-red-950 text-red-400 border border-red-500/40';
+          }
+        }
+
+        document.getElementById('llmReasoningText').innerText = parsed.reasoning || 'No reasoning provided.';
+
+        const tipsContainer = document.getElementById('llmTipsContainer');
+        const tipsText = document.getElementById('llmTipsText');
+        if (parsed.tips && tipsContainer && tipsText) {
+          tipsText.innerText = parsed.tips;
+          tipsContainer.classList.remove('hidden');
+        } else if (tipsContainer) {
+          tipsContainer.classList.add('hidden');
+        }
+
+        resultCard.classList.remove('hidden');
+        showToast('AI Range Prediction calculated!', true);
+
+      } catch (err) {
+        console.error('Groq LLM error:', err);
+        errorCard.classList.remove('hidden');
+        document.getElementById('llmErrorMessage').innerText = err.message || 'Network request failed or Groq API unavailable.';
+        showToast('Prediction failed: ' + err.message, false);
+      } finally {
+        spinner.classList.add('hidden');
+        btn.disabled = false;
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+    }
+
+    function extractJsonFromLlmResponse(rawText) {
+      const trimmed = rawText.trim();
+      try {
+        return JSON.parse(trimmed);
+      } catch (e) {
+        const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          try {
+            return JSON.parse(codeBlockMatch[1].trim());
+          } catch (e2) {}
+        }
+        const firstBrace = trimmed.indexOf('{');
+        const lastBrace = trimmed.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          return JSON.parse(trimmed.substring(firstBrace, lastBrace + 1));
+        }
+        throw new Error('Could not parse JSON from AI response: ' + trimmed.slice(0, 150));
+      }
+    }
+
+    // ==========================================
+    // TASK 2: DATASET IMPORT & SIMULATION
+    // ==========================================
+    function handleDatasetFile(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      const fileName = file.name.toLowerCase();
+
+      reader.onload = function(e) {
+        try {
+          const content = e.target.result;
+          if (fileName.endsWith('.json')) {
+            parseJsonDataset(content);
+          } else {
+            parseCsvDataset(content);
+          }
+        } catch (err) {
+          console.error(err);
+          showToast('Error parsing file: ' + err.message, false);
+        }
+        event.target.value = '';
+      };
+
+      reader.onerror = function() {
+        showToast('Failed to read file', false);
+      };
+
+      reader.readAsText(file);
+    }
+
+    function parseCsvDataset(text) {
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      if (lines.length < 2) {
+        showToast('CSV file is empty or has no data rows', false);
+        return;
+      }
+
+      const rawHeaders = lines[0].split(',').map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
+      
+      const parsedRows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
+        if (cols.length === 0 || (cols.length === 1 && cols[0] === '')) continue;
+
+        const rowObj = {};
+        for (let j = 0; j < rawHeaders.length; j++) {
+          const key = rawHeaders[j];
+          const val = cols[j] !== undefined ? parseFloat(cols[j]) : NaN;
+          rowObj[key] = isNaN(val) ? cols[j] : val;
+        }
+        parsedRows.push(rowObj);
+      }
+
+      if (parsedRows.length === 0) {
+        showToast('No valid rows found in CSV', false);
+        return;
+      }
+
+      onDatasetLoaded(parsedRows);
+    }
+
+    function parseJsonDataset(text) {
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        throw new Error('Invalid JSON syntax: ' + err.message);
+      }
+
+      let rows = [];
+      if (Array.isArray(data)) {
+        rows = data;
+      } else if (data && Array.isArray(data.rows)) {
+        rows = data.rows;
+      } else if (data && Array.isArray(data.data)) {
+        rows = data.data;
+      } else {
+        throw new Error('JSON is not an array of telemetry objects');
+      }
+
+      if (rows.length === 0) {
+        showToast('JSON dataset is empty', false);
+        return;
+      }
+
+      onDatasetLoaded(rows);
+    }
+
+    function onDatasetLoaded(rows) {
+      importedDataset = rows;
+      datasetCurrentIndex = 0;
+
+      if (isDatasetSimRunning) {
+        stopDatasetSimulation();
+      }
+
+      const btnRun = document.getElementById('btnRunDatasetSim');
+      const badge = document.getElementById('datasetProgressBadge');
+      const txtProgress = document.getElementById('datasetProgressText');
+      const btnText = document.getElementById('datasetSimText');
+      const btnIcon = document.getElementById('datasetSimIcon');
+
+      if (btnRun) {
+        btnRun.classList.remove('hidden');
+        if (btnText) btnText.innerText = 'RUN DATASET SIMULATION';
+        if (btnIcon) btnIcon.innerText = '▶';
+      }
+      if (badge) {
+        badge.classList.remove('hidden');
+        if (txtProgress) txtProgress.innerText = `Row 0 / ${importedDataset.length}`;
+      }
+
+      showToast(`Dataset imported: ${importedDataset.length} rows loaded`, true);
+    }
+
+    function toggleDatasetSimulation() {
+      if (isDatasetSimRunning) {
+        pauseDatasetSimulation();
+      } else {
+        startDatasetSimulation();
+      }
+    }
+
+    function startDatasetSimulation() {
+      if (!importedDataset || importedDataset.length === 0) {
+        showToast('No dataset imported yet', false);
+        return;
+      }
+
+      if (datasetCurrentIndex >= importedDataset.length) {
+        datasetCurrentIndex = 0;
+      }
+
+      if (isSimulationRunning) {
+        toggleSimulation();
+      }
+
+      isDatasetSimRunning = true;
+
+      const btnText = document.getElementById('datasetSimText');
+      const btnIcon = document.getElementById('datasetSimIcon');
+      if (btnText) btnText.innerText = 'PAUSE DATASET SIM';
+      if (btnIcon) btnIcon.innerText = '⏸';
+
+      const freshness = document.getElementById('freshnessBadge');
+      const dot = document.getElementById('freshnessDot');
+      const status = document.getElementById('freshnessStatus');
+      if (freshness) freshness.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-950/80 border border-purple-500/50 text-purple-300 text-xs font-black';
+      if (dot) dot.className = 'w-2 h-2 rounded-full bg-purple-400 animate-ping';
+      if (status) status.innerText = 'DATASET SIMULATION (10Hz)';
+
+      if (datasetSimTimer) clearInterval(datasetSimTimer);
+      datasetSimTimer = setInterval(stepDatasetSimulation, 100);
+    }
+
+    function pauseDatasetSimulation() {
+      isDatasetSimRunning = false;
+      if (datasetSimTimer) {
+        clearInterval(datasetSimTimer);
+        datasetSimTimer = null;
+      }
+
+      const btnText = document.getElementById('datasetSimText');
+      const btnIcon = document.getElementById('datasetSimIcon');
+      if (btnText) btnText.innerText = 'RESUME DATASET SIM';
+      if (btnIcon) btnIcon.innerText = '▶';
+
+      const freshness = document.getElementById('freshnessBadge');
+      const dot = document.getElementById('freshnessDot');
+      const status = document.getElementById('freshnessStatus');
+      if (freshness) freshness.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 text-xs font-black';
+      if (dot) dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+      if (status) status.innerText = 'DATASET PAUSED';
+    }
+
+    function stopDatasetSimulation() {
+      pauseDatasetSimulation();
+      datasetCurrentIndex = 0;
+      const txtProgress = document.getElementById('datasetProgressText');
+      if (txtProgress && importedDataset.length > 0) {
+        txtProgress.innerText = `Row 0 / ${importedDataset.length}`;
+      }
+    }
+
+    function stepDatasetSimulation() {
+      if (datasetCurrentIndex >= importedDataset.length) {
+        pauseDatasetSimulation();
+        const btnText = document.getElementById('datasetSimText');
+        const btnIcon = document.getElementById('datasetSimIcon');
+        if (btnText) btnText.innerText = 'RESTART DATASET SIM';
+        if (btnIcon) btnIcon.innerText = '🔄';
+        showToast('Dataset simulation completed!', true);
+        return;
+      }
+
+      const row = importedDataset[datasetCurrentIndex];
+
+      function getVal(keys, fallback) {
+        for (const k of keys) {
+          if (row[k] !== undefined && row[k] !== null && row[k] !== '') {
+            const n = parseFloat(row[k]);
+            if (!isNaN(n)) return n;
+          }
+        }
+        return fallback;
+      }
+
+      // Speed & RPM
+      if (getVal(['speed_kmh', 'speed'], null) !== null) {
+        speed = Math.max(0, getVal(['speed_kmh', 'speed'], speed));
+      }
+      if (getVal(['rpm', 'motor_rpm'], null) !== null) {
+        rpm = Math.max(0, Math.round(getVal(['rpm', 'motor_rpm'], rpm)));
+      } else {
+        rpm = Math.round((speed * 1000.0) / (1.357 * 60.0));
+      }
+
+      // Voltage & Current
+      if (getVal(['voltage_v', 'voltage'], null) !== null) {
+        voltage = getVal(['voltage_v', 'voltage'], voltage);
+      }
+      if (getVal(['current_a', 'current'], null) !== null) {
+        current = getVal(['current_a', 'current'], current);
+      } else {
+        current = speed > 1.0 ? (2.0 + Math.pow(speed / 50.0, 2) * 22.0) : 0.5;
+      }
+
+      power = voltage * current;
+
+      // SoC
+      if (getVal(['soc_pct', 'soc'], null) !== null) {
+        soc = Math.max(0, Math.min(100, getVal(['soc_pct', 'soc'], soc)));
+      }
+
+      // Motor Temp
+      if (getVal(['motor_temp_c', 'motor_temp', 'temp'], null) !== null) {
+        motorTemp = getVal(['motor_temp_c', 'motor_temp', 'temp'], motorTemp);
+      }
+
+      // Payload weights & gradient
+      if (getVal(['rider_kg', 'rider'], null) !== null) {
+        riderWeight = getVal(['rider_kg', 'rider'], riderWeight);
+        const slider = document.getElementById('sliderRider');
+        const lbl = document.getElementById('lblRiderWeight');
+        if (slider) slider.value = riderWeight;
+        if (lbl) lbl.innerText = riderWeight + ' kg';
+      }
+      if (getVal(['passenger_kg', 'passenger'], null) !== null) {
+        passengerWeight = getVal(['passenger_kg', 'passenger'], passengerWeight);
+        const slider = document.getElementById('sliderPassenger');
+        const lbl = document.getElementById('lblPassengerWeight');
+        if (slider) slider.value = passengerWeight;
+        if (lbl) lbl.innerText = passengerWeight + ' kg';
+      }
+      if (getVal(['cargo_kg', 'cargo'], null) !== null) {
+        cargoWeight = getVal(['cargo_kg', 'cargo'], cargoWeight);
+        const slider = document.getElementById('sliderCargo');
+        const lbl = document.getElementById('lblCargoWeight');
+        if (slider) slider.value = cargoWeight;
+        if (lbl) lbl.innerText = cargoWeight + ' kg';
+      }
+      if (getVal(['gradient_pct', 'gradient'], null) !== null) {
+        const grad = getVal(['gradient_pct', 'gradient'], 0);
+        if (grad > 4.5) setRoadGradient('hilly');
+        else if (grad > 1.5) setRoadGradient('city');
+        else setRoadGradient('flat');
+      }
+
+      // Sync manual sliders
+      const sliderSpeed = document.getElementById('sliderManualSpeed');
+      const sliderRpm = document.getElementById('sliderManualRpm');
+      const dispSpeed = document.getElementById('manualSpeedDisplay');
+      const dispRpm = document.getElementById('manualRpmDisplay');
+      if (sliderSpeed) sliderSpeed.value = Math.round(speed);
+      if (sliderRpm) sliderRpm.value = rpm;
+      if (dispSpeed) dispSpeed.innerText = Math.round(speed) + ' km/h';
+      if (dispRpm) dispRpm.innerText = rpm + ' RPM';
+
+      // Update Dashboard Meters
+      document.getElementById('txtSpeed').innerText = Math.round(speed);
+      document.getElementById('txtRpmBadge').innerText = rpm + ' RPM';
+      document.getElementById('valRpm').innerText = rpm;
+      document.getElementById('valVolt').innerText = voltage.toFixed(1) + ' V';
+      document.getElementById('txtVoltage').innerText = voltage.toFixed(1) + ' V';
+      document.getElementById('valCurrent').innerText = (current >= 0 ? '+' : '') + current.toFixed(1) + ' A';
+      document.getElementById('subCurrent').innerText = current < 0 ? 'Regenerating' : 'Discharging';
+      document.getElementById('valPower').innerText = Math.abs(Math.round(power)) + ' W';
+      document.getElementById('valMotorTemp').innerText = Math.round(motorTemp) + '°C';
+      document.getElementById('valLoad').innerText = Math.min(100, Math.round(Math.abs(current) / 45.0 * 100)) + '%';
+      document.getElementById('txtSoc').innerText = Math.round(soc) + '%';
+
+      // Power flow bar
+      const isRegen = current < -0.2;
+      const powerKw = Math.abs(power) / 1000.0;
+      document.getElementById('txtPowerKw').innerText = (isRegen ? '-' : '+') + powerKw.toFixed(2) + ' kW';
+      document.getElementById('powerDirectionLabel').innerText = isRegen ? 'REGENERATIVE BRAKING' : 'POWER OUTPUT';
+      document.getElementById('powerDirectionLabel').className = isRegen ? 'text-xs font-black uppercase tracking-wider text-emerald-400' : 'text-xs font-black uppercase tracking-wider text-cyan-400';
+      document.getElementById('chargeIcon').innerText = isRegen ? '⚡ REGEN' : '🔋';
+      
+      const pFraction = Math.min(1.0, powerKw / 2.5);
+      if (isRegen) {
+        document.getElementById('barRegen').style.width = (pFraction * 50) + '%';
+        document.getElementById('barDrive').style.width = '0%';
+      } else {
+        document.getElementById('barDrive').style.width = (pFraction * 50) + '%';
+        document.getElementById('barRegen').style.width = '0%';
+      }
+
+      // Speed Gauge Arc
+      const dashOffset = 386 - (Math.min(1.0, speed / 80.0) * 290);
+      document.getElementById('speedArc').style.strokeDashoffset = dashOffset;
+
+      // Diagnostics, range calculations, BMS cells
+      updateDiagnostics();
+      updateRangeCalculations();
+      renderBmsCells();
+
+      // Trip Integration
+      if (isTripActive) {
+        integrateTrip(0.1);
+      }
+
+      // Live Chart history
+      historyData.speed.push(speed);
+      historyData.power.push(powerKw * 20);
+      historyData.current.push(current);
+      historyData.voltage.push(voltage);
+      if (historyData.speed.length > 50) {
+        historyData.speed.shift();
+        historyData.power.shift();
+        historyData.current.shift();
+        historyData.voltage.shift();
+      }
+      renderChart();
+
+      // Progress indicator
+      document.getElementById('datasetProgressText').innerText = `Row ${datasetCurrentIndex + 1} / ${importedDataset.length}`;
+
+      datasetCurrentIndex++;
+    }
+
+    // Initial setup
+    renderBmsCells();
+    updateRangeCalculations();
+    autoPopulateLlmInput();
+  </script>
+</body>
+</html>
